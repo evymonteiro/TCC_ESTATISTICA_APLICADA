@@ -141,37 +141,10 @@ table(dados_sih$uf)
 
 summary(dados_sih)
 
-
-##########################################################
-
-## Agora temos o banco dedados dados_sih que contêm as colunas
-## "uf", "MES_CMPT" e "ANO_CMPT" em que cada linha representa uma
-## internação (com seu número de dias internados também tabelado).
-## Da mesma forma que contamos os focos por mes, também iremos contar
-## os casos de internação por mes associado a cada uf. 
-
-
 sih_mes <- dados_sih %>%
-  count(UF_ZI, MUNIC_RES, DIAG_PRINC, MES_CMPT, ANO_CMPT, name = "Internações")
+  count(Estado, UF_ZI, MUNIC_RES, DIAG_PRINC, MES_CMPT, ANO_CMPT, name = "Internações")
 
-
-#### ADICIONANDO TAMBÉM A QUANTIDADE DE DIAS DE INTERNAÇÃO
-#### E O VALOR TOTAL GASTO: 
-
-somatorio_sih <- dados_sih %>%
-  group_by(uf, MES_CMPT, ANO_CMPT) %>%
-  summarise(
-    QT_DIARIAS = sum(QT_DIARIAS, na.rm = TRUE),
-    VAL_TOT = sum(VAL_TOT, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-sih_mes <- left_join(sih_mes, somatorio_sih, by = c("uf", "MES_CMPT", "ANO_CMPT"))
-
-#### A partir daqui os bancos de dados do datasus e terrabrasilis 
-#### estão prontos para serem utilizados juntos no trabalho. 
-
-#save(sih_mes, file = "sih_mes.RData")
+save(sih_mes, file = "sih_mes.RData")
 
 
 ##########################################################
@@ -179,26 +152,27 @@ sih_mes <- left_join(sih_mes, somatorio_sih, by = c("uf", "MES_CMPT", "ANO_CMPT"
 ##########################################################
 
 summary(sih_mes)
-summary(dadosBR_mes)
-par(mfrow = c(1, 2))
-hist(sih_mes$Internações)
-hist(dadosBR_mes$QtdFocos)
+summary(dados_inpe)
 
 par(mfrow = c(1, 2))
-boxplot(dadosBR_mes$QtdFocos)
+hist(sih_mes$Internações)
+hist(dados_inpe$Focos_Mes)
+
+par(mfrow = c(1, 2))
+boxplot(dados_inpe$Focos_Mes)
 boxplot(sih_mes$Internações)
 
 par(mfrow = c(1, 1))
 
-boxplot(QtdFocos ~ MES_CMPT, 
-        data = dadosBR_mes,
+boxplot(Focos_Mes ~ Mes, 
+        data = dados_inpe,
         main = "Distribuição de Focos por Mês",
         xlab = "Mês",
         ylab = "Qtd de Focos",
         col = "skyblue")
 
-boxplot(QtdFocos ~ ANO_CMPT, 
-        data = dadosBR_mes,
+boxplot(Focos_Mes ~ Ano, 
+        data = dados_inpe,
         main = "Distribuição de Focos por Ano",
         xlab = "Ano",
         ylab = "Qtd de Focos",
@@ -219,6 +193,36 @@ boxplot(Internações ~ ANO_CMPT,
         col = "skyblue")
 
 
+##########################################################
+# PROPORÇÃO
+##########################################################
+
+# Certifique-se de que a biblioteca dplyr está carregada
+library(dplyr)
+
+cids <- sih_mes %>%
+  # Agrupa os dados por Ano, Mes e munic_res
+  group_by(ANO_CMPT, MES_CMPT, MUNIC_RES) %>%
+  # Calcula o total de internações para os CIDs de interesse
+  summarise(
+    internacoes_interesse = sum(DIAG_PRINC %in% cids_select)
+  ) %>%
+  # FILTRA: Remove todas as linhas onde a contagem é zero
+  filter(internacoes_interesse > 0) %>%
+  # Desagrupa os dados
+  ungroup()
+
+# Exibir as primeiras linhas do novo data frame
+print(head(cids))
+
+# Exibir as primeiras linhas do novo data frame com as proporções
+print(head(cids))
+
+##Proporção = 0
+
+print(sum(proporcao$proporcao_cids == 0))
+
+
 ###############################################################
 ######## AGREGANDO DADOS ESPACIAIS #######################
 ############################################################
@@ -228,120 +232,52 @@ boxplot(Internações ~ ANO_CMPT,
 
 ## Também pode ser baixado por meio do geo_br
 #Shapes:
-biomas <- read_biomes()
-estados <- read_state()
+
 municipios <- read_municipality()
-st_crs(biomas)
-st_crs(estados)
+
+
 st_crs(municipios)
 
 save(estados, file = "shape_estados.RData")
 
+library(wesanderson)
 
 ggplot(municipios) +
-  geom_sf(fill = "lightgreen", color = "gray40") +
-  labs(title = "Estados do Brasil - IBGE")
-ggplot(biomas) +
-  geom_sf(aes(fill = name_biome)) +
-  labs(title = "Biomas do Brasil (IBGE via geobr)")
+  geom_sf(aes(fill = abbrev_state), color = "gray40") +
+  scale_fill_manual(values = wes_palette("Cavalcanti1", n = 2)) +
+  labs(
+    title = "MUNICÍPIOS MT E MS",
+    fill = "Estado",
+    caption = "Sistema de Coordenadas Geográficas, SIRGAS 2000. Fonte: IBGE"
+  ) +
+  ggspatial::annotation_north_arrow(location = "tr", which_north = "true") +
+  ggspatial::annotation_scale(location = "br") +
+  coord_sf(datum = st_crs(4326)) +
+  theme_classic() +
+  theme(
+    # Centraliza o título principal do gráfico
+    plot.title = element_text(hjust = 0.5),
+    # Centraliza a legenda de cores na parte inferior do gráfico
+    legend.position = "bottom",
+    legend.box = "horizontal",
+    legend.justification = "center"
+  )
 
-########### DADOS SIH ASSOCIADOS AOS BIOMAS - ERRO ##############
-##Tirar ultimo digito codigo municipal (ler e-book datasus)
-
-###Tentando atribuir coordenada entre as contagens, para associa-las a um
-###bioma ---- APRESENTOU ERROS DE GEOMETRIA. 
-
-#sih_muni <- dados_sih %>%
-# filter(ANO_CMPT >= 2022, ANO_CMPT <= 2024) %>%
-#group_by(uf, MUNIC_RES, MES_CMPT, ANO_CMPT) %>%
-#summarise(
-# Internacoes = n(),
-# .groups = "drop"
-#)
-
-##Centroides municipios
-
-#library(dplyr)
-
-#municipios <- municipios %>%
-#st_make_valid() 
-
-#centroide_mun <- municipios %>%
-#mutate(geom = st_centroid(geom)) %>%
-# dplyr::select(code_muni, geom)
-
-#mun_coords <- centroide_mun %>%
-#mutate(
-# lon = st_coordinates(geom)[, 1],
-#lat = st_coordinates(geom)[, 2]
-#  ) %>%
-#st_drop_geometry()
-
-## Extraindo o último dígito do código de múnicipio
-## de acordo com o e-book do datasus
-
-#mun_coords <- mun_coords %>%
-# mutate(code_muni = substr(code_muni, 1, nchar(code_muni) - 1))
-
-### Juntando:
-
-#sih_muni <- sih_muni %>%
-# left_join(
-#  dplyr::select(mun_coords, code_muni, lat, lon), 
-# by = c("MUNIC_RES" = "code_muni")
-# )
-
-
-
-
-### MAPA MOSTRANDO OS BIOMAS EM CADA ESTADO #######
-
-# CENTRÓIDE PARA ADIÇÃO DE RÓTULOS: 
-estados_centroides <- estados %>%
-  mutate(centro = st_point_on_surface(geom)) %>%
-  cbind(st_coordinates(.$centro))
-
-save(estados_centroides, file = "estados_centroides.RData")
-
-
-# Mapa com rótulos
-library(ggplot2)
-library(sf)
 library(dplyr)
-library(ggspatial)
-library(grid) 
-#install.packages("wesanderson")
-library(wesanderson)
-names(wes_palettes)
-wes_palette("BottleRocket1")   
-
-##### CRIANDO UM MAPA TEMÁTICO DE FOCOS POR BIOMA: #### 
-
-library(ggplot2)
-library(ggspatial)
 library(sf)
-library(dplyr)
-library(viridis)
+names(municipios)
 
-# Calcular os centroides dos biomas para criar simbolos proporcionais. 
+municipios <- municipios %>%
+  filter(abbrev_state %in% c("MS", "MT"))
 
-focos_bioma <- dados_biomas %>%
-  group_by(Bioma) %>%
-  summarise(QtdFocos = sum(QtdFocos, na.rm = TRUE)) %>%
-  ungroup() %>%
-  { left_join(biomas, ., by = c("name_biome" = "Bioma")) }
+# 2. Salvar o novo objeto em um arquivo shapefile
+# O arquivo será salvo na sua pasta de trabalho
+st_write(
+  municipios,
+  "municipios.shp",
+  driver = "ESRI Shapefile" # Driver para o formato .shp
+)
 
-#focos_bioma <- biomas %>%
-# left_join(dados_biomas, by = c("name_biome" = "Bioma"))
-
-biomas_centroides <- focos_bioma %>%
-  st_centroid() %>%
-  st_coordinates() %>%
-  as_tibble() %>%
-  bind_cols(focos_bioma %>% st_drop_geometry() %>% dplyr::select(name_biome, QtdFocos))
-
-
-save(biomas_centroides, file = "biomas_centroides.RData")
 
 # Mapa
 mapa_focos_bioma <- ggplot() +
@@ -464,45 +400,6 @@ mapa_focos_por_estado <- ggplot() +
   )
 
 
-
-############## MAPA DE BIOMAS ######
-
-mapa_biomas <- ggplot() +
-  #Preenchimento dos Biomas
-  geom_sf(data = biomas, aes(fill = name_biome), color = NA, alpha = 0.6) +
-  #Contorno dos Estados
-  geom_sf(data = estados, fill = NA, color = "black", size = 0.4) +
-  geom_text(data = estados_centroides,
-            aes(x = X, y = Y, label = abbrev_state),
-            size = 3, fontface = "bold", color = "black") +
-  # Paleta e legenda
-  scale_fill_brewer(palette = "Set3", name = "Biomas") +
-  # Título e legenda
-  labs(title = "Biomas em Estados Brasileiros",
-       caption = "Fonte: IBGE") +
-  # seta do norte
-  annotation_north_arrow(location = "tr", which_north = "true",
-                         style = north_arrow_fancy_orienteering,
-                         height = unit(1, "cm"), width = unit(1, "cm"),
-                         pad_x = unit(0.5, "cm"), pad_y = unit(0.5, "cm")) +
-  #Escala:
-  annotation_scale(location = "bl", style = "ticks", text_cex = 1) +
-  theme_minimal() +
-  ### Definindo posição da legenda, titúlo e caption:
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold", size = 14),  
-    legend.position = "right", 
-    plot.caption = element_text(hjust = 0.5)
-  ) + 
-  #Grid de coordenadas, ggplot sempre lat e long.
-  coord_sf() + 
-  # Caixa de texto com o código EPSG 
-  annotation_custom(
-    grob = grid::textGrob("CRS: SIRGAS 2000",
-                          x = unit(0.95, "npc"),  
-                          y = unit(0.1, "npc"), 
-                          just = c("right", "bottom"),
-                          gp = grid::gpar(fontsize = 9, fontface = "italic")))
 
 
 ############## MAPA DE INTERNAÇÕES POR ESTADO  ######
@@ -641,83 +538,6 @@ mapa_internacoes_por_estado <- ggplot() +
 
 
 
-
-
-############ TENTATIVA ATRIBUIR UM BIOMA AO BANCO DE DADOS SIH ###########
-
-##### CRIANDO SHAPEFILE UTILIZANDO O OBJETO cod_municipais
-##### COM A FINALIDADE DE ATRIBUIR UM BIOMA AO BANCO DE DADOS SIH
-#### A IDEIA É CRUZAR AS COORDENADAS MUNICIPAIS COM AS COORDENADAS
-#### DOS BIOMAS FORNECIDOS PELO IBGE. 
-
-
-####BANCO DE DADOS APRESENTOU VALORES DE LAT
-### E LONG VAZIOS, PROVAVELMENTE POR FALTA DE CÓDIGO 
-##### EQUIVALENTE 
-
-
-#sum(is.na(cod_municipais$lat))
-#sum(is.na(cod_municipais$lon))
-#sih_muni %>% filter(is.na(lat) | is.na(lon))
-
-## LOCALIZAR CÓDIGO SIMILAR PARA ATRIBUIR COORDENADA. 
-
-# Filtra só os códigos de SC e MS
-#codigos_ms <- cod_municipais %>%
-# filter(uf %in% c("MS")) %>%
-#dplyr::select(uf, MUNIC_RES) %>%
-#distinct()
-
-##Substituir SC 422000 POR SC 421985 e SC 421265 POR 421270
-### MS : 500627 POR 500625 ---- similaridade entre códigos vide ebook datasus
-
-######### CÓDIGO PARA ADICIONAR COORDENADAS FALTANTES AOS MUNICIPIOS
-######### COM CÓDIGO INCONGRUENTE DE ACORDO COM O DATASUS E IBGE. 
-
-#library(dplyr)
-
-#sih_muni <- sih_muni %>%
-#mutate(
-# lat = case_when(
-# uf == "SC" & MUNIC_RES == "422000" ~ lat[uf == "SC" & MUNIC_RES == "421985"][1] + 0.033333,
-# uf == "SC" & MUNIC_RES == "421265" ~ lat[uf == "SC" & MUNIC_RES == "421270"][1] + 0.033333,
-# uf == "MS" & MUNIC_RES == "500627" ~ lat[uf == "MS" & MUNIC_RES == "500625"][1] + 0.033333,
-#TRUE ~ lat
-# ),
-# lon = case_when(
-#  uf == "SC" & MUNIC_RES == "422000" ~ lon[uf == "SC" & MUNIC_RES == "421985"][1] + 0.033333,
-# uf == "SC" & MUNIC_RES == "421265" ~ lon[uf == "SC" & MUNIC_RES == "421270"][1] + 0.033333,
-# uf == "MS" & MUNIC_RES == "500627" ~ lon[uf == "MS" & MUNIC_RES == "500625"][1] + 0.033333,
-#TRUE ~ lon
-#)
-#)
-
-###############################################################
-################# MERGE - ERRO ###############################
-##############################################################
-
-#pontos_sf <- st_as_sf(sih_muni, coords = c("lon", "lat"), crs = 4674)
-
-#cod_municipais_com_bioma <- st_join(pontos_sf, biomas, join = st_intersects)
-
-#cod_municipais_com_bioma <- st_join(pontos_sf, biomas, join = st_intersects, left = FALSE) %>%
-#group_by(uf, MUNIC_RES, MES_CMPT, ANO_CMPT, QT_DIARIAS, VAL_TOT) %>%
-#slice(1) %>%  
-#ungroup()
-
-
-#save(cod_municipais_com_bioma, file = "cod_municipais_com_bioma.Shapefile")
-#cod_municipais_com_bioma <- cod_municipais_com_bioma %>%
-#dplyr::select(-year)
-
-#cod_municipais %>% filter(is.na(lat) | is.na(lon))
-#save(cod_municipais, file = "cod_municipais.RData")
-
-
-
-
-
-
 ######## ESTATÍSTICA ESPACIAL - DADOS DE ÁREA ##################
 
 #Contagem delimitada por polígonos. 
@@ -740,71 +560,9 @@ library(sf)
 library(ggspatial)
 library(grid)
 
-mapa_focos_pontuais <- ggplot() +
-  # Preenchimento dos Biomas
-  geom_sf(data = biomas, aes(fill = name_biome), color = NA, alpha = 0.6) +
-  
-  # Contorno dos Estados
-  geom_sf(data = estados, fill = NA, color = "black", size = 0.4) +
-  
-  # Pontos dos Focos (camada adicionada)
-  geom_sf(data = pontos_sf, color = "red", size = 0.5, alpha = 0.6) +
-  
-  # Rótulos dos Estados (centróides)
-  geom_text(data = estados_centroides,
-            aes(x = X, y = Y, label = abbrev_state),
-            size = 3, fontface = "bold", color = "black") +
-  
-  # Paleta e legenda
-  scale_fill_brewer(palette = "Set3", name = "Biomas") +
-  
-  # Título e legenda
-  labs(title = "Biomas, Estados e Focos de Calor (Pontos)",
-       caption = "Fonte: IBGE / Dados de Satélite") +
-  
-  # Seta do Norte
-  annotation_north_arrow(location = "tr", which_north = "true",
-                         style = north_arrow_fancy_orienteering,
-                         height = unit(1, "cm"), width = unit(1, "cm"),
-                         pad_x = unit(0.5, "cm"), pad_y = unit(0.5, "cm")) +
-  
-  # Escala
-  annotation_scale(location = "bl", style = "ticks", text_cex = 1) +
-  
-  theme_minimal() +
-  
-  # Estilo dos textos e posição da legenda
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold", size = 14),  
-    legend.position = "right", 
-    plot.caption = element_text(hjust = 0.5)
-  ) + 
-  
-  # Grid e projeção
-  coord_sf() + 
-  
-  # Texto do EPSG
-  annotation_custom(
-    grob = grid::textGrob("CRS: SIRGAS 2000",
-                          x = unit(0.95, "npc"),  
-                          y = unit(0.1, "npc"), 
-                          just = c("right", "bottom"),
-                          gp = grid::gpar(fontsize = 9, fontface = "italic"))
-  )
-
-
 ########################################################
 ###### MORAN GLOBAL, LOCAL E LISAMAP FOCOS DE INCENDIO ############
 ########################################################
-
-#Remover o Bioma Costeiro pois não há observações para ele. 
-
-library(dplyr)
-
-focos_bioma <- focos_bioma %>%
-  filter(name_biome != "Sistema Costeiro")
-
-save(focos_bioma, file = "focos_bioma.RData")
 
 
 library(sf)
@@ -843,42 +601,6 @@ ggplot() +
   labs(title = "Vizinhança por Contiguidade - Estados (projetado)") +
   theme_minimal()
 
-
-## ===============================
-## MATRIZ DE VIZINHANÇA - BIOMAS
-## ===============================
-
-library(sf)
-library(spdep)
-library(ggplot2)
-
-#focos_bioma para CRS projetado (SIRGAS 2000 / UTM zone 23S)
-focos_bioma_proj <- st_transform(focos_bioma, 31983)
-save(focos_proj, file = "focos_proj.RData")
-
-#centroides no CRS projetado
-coord_biomas_proj <- as.matrix(st_coordinates(st_centroid(focos_bioma_proj)))
-
-#vizinhança entre os biomas
-nb_bioma <- poly2nb(focos_bioma_proj)
-#pesos espaciais normalizados
-lw_bioma <- nb2listw(nb_bioma, style = "W")
-
-#linhas de vizinhança como objeto sf
-nb_bioma.sf <- as(nb2lines(nb_bioma, coords = coord_biomas_proj), "sf")
-nb_bioma.sf <- st_set_crs(nb_bioma.sf, st_crs(focos_bioma_proj))
-
-#Mapa de vizinhança por bioma
-ggplot() +
-  geom_sf(data = focos_bioma_proj, fill = "lightpink", color = "white") +
-  geom_sf(data = nb_bioma.sf, color = "blue", size = 1.2) +
-  labs(
-    title = "Vizinhança por Contiguidade - Biomas",
-    x = "Longitude", y = "Latitude"
-  ) +
-  theme_minimal()
-
-
 #### MORAN GLOBAL 
 
 ## Hipótese Nula: Não há autocorrelação espacial vs H1: Há autocorrelação. 
@@ -899,21 +621,12 @@ lisa_bioma <- localmoran(focos_bioma_proj$QtdFocos, lw_bioma)
 focos_proj$Ii <- lisa_focos_estados[, "Ii"]
 focos_proj$pvalue <- lisa_focos_estados[, "Pr(z != E(Ii))"]
 
-# LISA para Biomas
-focos_bioma_proj$Ii <- lisa_bioma[, "Ii"]
-focos_bioma_proj$pvalue <- lisa_bioma[, "Pr(z != E(Ii))"]
-
 save(internacoes_proj, file = "internacoes_proj.RData")
 
 # Correlograma (Estados)
 correl_estado <- sp.correlogram(nb_focos_estados, focos_proj$QtdFocos, order = 4, method = "I")
 print(correl_estado)
 plot(correl_estado)
-
-# Correlograma (Biomas)
-correl_biomas <- sp.correlogram(nb_bioma, focos_bioma_proj$QtdFocos, order = 2, method = "I")
-print(correl_biomas)
-plot(correl_biomas)
 
 ### Mapeando os polígonos que tiveram os p-valores mais significativos no Moran Local
 library(tmap)
@@ -999,40 +712,6 @@ tm_shape(focos_proj) +
   tm_scale_bar(position = c("left", "bottom")) +
   tm_credits("CRS: SIRGAS 2000 / UTM Zone 23S", position = c("RIGHT", "BOTTOM"), size = 0.6)
 
-
-## ===============================
-## LISAMAP FOCOS POR BIOMA: 
-## ===============================
-
-focos_bioma_proj <- classificar_clusters(focos_bioma_proj, variavel = "QtdFocos", moran = "Ii", pvalor = "pvalue")
-save(focos_bioma_proj, file = "focos_bioma_proj.RData")
-
-
-tm_shape(focos_bioma_proj) +
-  tm_fill(
-    col = "cluster_type",
-    palette = c(
-      "Alto-Alto"         = "#E60000",
-      "Baixo-Baixo"       = "#0033CC",
-      "Baixo-Alto"        = "#9999FF",
-      "Alto-Baixo"        = "#FF9999",
-      "Não significativo" = "#FFFFFF"
-    ),
-    title = "Cluster Local (LISA)",
-    legend.is.portrait = TRUE
-  ) +
-  tm_borders(col = "gray40", lwd = 0.4) +
-  tm_layout(
-    main.title = "Mapa LISA - Clusters Locais de Focos por Bioma",
-    main.title.size = 1.2,
-    main.title.position = "center",
-    legend.outside = TRUE,
-    frame = FALSE,
-    bg.color = "white"
-  ) +
-  tm_compass(type = "8star", position = c("right", "top"), size = 2) +
-  tm_scale_bar(position = c("left", "bottom")) +
-  tm_credits("CRS: SIRGAS 2000 / UTM Zone 23S", position = c("RIGHT", "BOTTOM"), size = 0.6)
 
 ########################################################
 ###### MORAN GLOBAL, LOCAL E LISAMAP INTERNAÇÕES ############
@@ -1120,52 +799,9 @@ tm_shape(internacoes_proj) +
   tm_scale_bar(position = c("left", "bottom")) +
   tm_credits("CRS: SIRGAS 2000 / UTM Zone 23S", position = c("RIGHT", "BOTTOM"), size = 0.6)
 
-############################# LISAMAP SEM TAXA 
-
-# MORAN LOCAL para INTERNAÇÕES
-lisa_internacoes2 <- localmoran(internacoes_proj$Internações, lw_internacoes)
-
-
-internacoes_proj$Ii_sem_taxa <- lisa_internacoes2[, "Ii"]
-internacoes_proj$pvalue_sem_taxa <- lisa_internacoes2[, "Pr(z != E(Ii))"]
-
-internacoes_proj <- classificar_clusters2(
-  internacoes_proj,
-  variavel = "Internações",
-  moran = "Ii_sem_taxa",
-  pvalor = "pvalue_sem_taxa"
-)
-
-
-# LISAMAP para INTERNAÇÕES
-tm_shape(internacoes_proj) +
-  tm_fill(
-    col = "cluster_type_2",
-    palette = c(
-      "Alto-Alto"         = "#E60000",
-      "Baixo-Baixo"       = "#0033CC",
-      "Baixo-Alto"        = "#9999FF",
-      "Alto-Baixo"        = "#FF9999",
-      "Não significativo" = "#FFFFFF"
-    ),
-    title = "Cluster Local (LISA)",
-    legend.is.portrait = TRUE
-  ) +
-  tm_borders(col = "gray40", lwd = 0.4) +
-  tm_layout(
-    main.title = "LISAMAP - Internações por Estado",
-    main.title.size = 1.2,
-    main.title.position = "center",
-    legend.outside = TRUE,
-    frame = FALSE,
-    bg.color = "white"
-  ) +
-  tm_compass(type = "8star", position = c("right", "top"), size = 2) +
-  tm_scale_bar(position = c("left", "bottom")) +
-  tm_credits("CRS: SIRGAS 2000 / UTM Zone 23S", position = c("RIGHT", "BOTTOM"), size = 0.6)
 
 ###########################################
-## MODELOS CAR E GWR ##########
+## MODELOS GWR ##########
 ######################################
 
 library(sf)
@@ -1184,45 +820,6 @@ internacoes_proj <- internacoes_proj %>%
       dplyr::select(abbrev_state, QtdFocos),
     by = "abbrev_state"
   )
-
-#MODELO CAR
-
-# Padronizar as variáveis para ajustar a escala
-internacoes_proj <- internacoes_proj %>%
-  mutate(
-    taxa_incidencia_z = scale(taxa_incidencia),
-    QtdFocos_z = scale(QtdFocos)
-  )
-
-saveRDS(car_modelo, file = "modelo_car.rds")
-save(internacoes_proj, file = "internacoes_proj.RData")
-
-
-
-# Rodar o modelo SAR de erros com variáveis padronizadas
-car_modelo <- errorsarlm(taxa_incidencia_z ~ QtdFocos_z,
-                         data = internacoes_proj,
-                         listw = lw_internacoes)
-
-# Mostrar resumo do modelo
-summary(car_modelo)
-
-
-
-
-AIC_car <- AIC(car_modelo)
-R2_car <- car_modelo$fit$R2
-
-##### MODELO LINEAR AIC MENOR, LR test value: 0.27546 e Lambda: 0.14558
-### indicando fraca correlação espacial, dando preferência ao LM. 
-## Variavel foco não foi significativa
-
-
-##Checagem de resíduos: 
-car_modelo$carresid <- residuals(car_modelo)
-moran.test(car_modelo$carresid, lw_internacoes)
-
-#h0: ausencia de autocorrelação nos resíduos
 
 # ------------------------
 # Modelo GWR
@@ -1312,18 +909,6 @@ tx.bruta <- ggplot(internacoes_proj) +
   ggtitle("Taxa Bruta Observada") +
   theme_void()
 
-# ----------------------------------------- Predito - CAR
-internacoes_proj$brks.car <- cut(internacoes_proj$pred.car,
-                                 breaks = breaks,
-                                 include.lowest = TRUE,
-                                 right = TRUE,
-                                 labels = labels)
-
-pred.car <- ggplot(internacoes_proj) +
-  geom_sf(aes(fill = brks.car), color = "black", size = 0.1) +
-  scale_fill_brewer(palette = "YlOrRd", name = "Taxa") +
-  ggtitle("Taxa Predita - CAR") +
-  theme_void()
 
 # ----------------------------------------- Predito - GWR
 internacoes_proj$brks.gwr <- cut(internacoes_proj$pred.gwr,
@@ -1337,12 +922,3 @@ pred.gwr <- ggplot(internacoes_proj) +
   scale_fill_brewer(palette = "YlOrRd", name = "Taxa") +
   ggtitle("Taxa Predita - GWR") +
   theme_void()
-
-# ----------------------------------------- Mostrar mapas lado a lado
-grid.arrange(tx.bruta, pred.car, pred.gwr, ncol = 2)
-
-
-
-#install.packages("shinyjs")
-
-#install.packages('rsconnect')
