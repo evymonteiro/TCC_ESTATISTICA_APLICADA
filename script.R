@@ -1,6 +1,27 @@
 
 rm(list = ls())
 
+vars_select = c("N_AIH", "ANO_CMPT", "MES_CMPT", "UF_ZI", "MUNIC_RES", "NASC", "IDADE", "SEXO", 
+                "DIAG_PRINC", "QT_DIARIAS", "DT_INTER", "DT_SAIDA",  "VAL_SP", "VAL_TOT")
+
+
+# Doenças respiratórias que podem ser ocasionadas por queimadas:
+
+# J40 - Bronquite não especificada como aguda ou crônica
+# J41 - Bronquite crônica simples e mucopurulenta
+# J42 - Bronquite crônica não especificada
+# J43 - Enfisema pulmonar
+# J44 - Doença Pulmonar Obstrutiva Crônica (DPOC)
+# J45 - Asma
+# J46 - Estado de mal asmático
+# J18 - Pneumonia não especificada
+# J00-J06 - Infecções agudas das vias aéreas superiores (resfriados comuns, rinite aguda, sinusite)
+# J20-J22 - Outras infecções agudas das vias aéreas inferiores (bronquiolites, bronquite aguda, infecção respiratória inferior aguda não especificada)
+
+# DEFININDO AS CID DE INTERESSE
+cids_select <- c("J40", "J41", "J42", "J43", "J44", "J45", "J46", "J18",
+                 "J00", "J01", "J02", "J03", "J04", "J05", "J06",
+                 "J20", "J21", "J22")
 
 ### PERÍODO DE ANÁLISE 2015 A 2018
 ### MENSAL
@@ -37,7 +58,7 @@ library(spatialreg)
 library(spgwr)
 library(gstat)
 library(automap)
-
+library(arrow)
 
 
 #######################################
@@ -45,24 +66,48 @@ library(automap)
 #######################################
 
 
-load("dados.Rdata")
+#read_parquet("dados.parquet")
 
 # Lendo os dados extraidos do TerraBrasilis
 
 ### LOAD BANCO DE DADOS DATASUS ###
 
+#load("2018.RData")
 load("dados_sih.RData")
+load("dados_inpe.RData")
+
+
+#dados <- c(X2015, X2016, X2017, X2018)
+#dados <- data.frame(valor = dados)
+
+
+library(dplyr)
+library(tidyr)
+
+#lista_de_dados <- list(X2015, X2016, X2017, X2018)
+
+#dados <- tibble(valor = lista_de_dados) %>%
+ # unnest(cols = c(valor))
+
+#dados_sih <- bind_rows(sih_df_MS, sih_df_MT)
+
+# Verifique o resultado
+#head(dados)
+
+#save(dados_sih, file = "dados_sih.RData")
 
 #################################################
 ######### FORMATAÇÃO REALIZADA NO TERRABRASILIS ##########
 ###########################################
 
 # Formatando as datas do banco e retirando aqueles registros sem data
-dadosBR <- dadosBR %>%
-  mutate(Ano = year(ymd_hms(DataHora))) |>  # extrai o ano da coluna DataHora
-  mutate(across(where(is.numeric), ~na_if(., -999)))
+#dados_inpe <- dados %>%
+ # mutate(Ano = year(ymd_hms(DataHora))) |>  # extrai o ano da coluna DataHora
+#  mutate(across(where(is.numeric), ~na_if(., -999)))
 
 head(dados_inpe)
+
+unique(dados_inpe$Ano)
 
 ##################################################
 ## Agregando a Freqencia de focos de calor por mes e Estado
@@ -70,192 +115,26 @@ head(dados_inpe)
 
 # Supondo que dadosBR$DataHora esteja no formato POSIXct ou Date
 
-dadosBR_mes <- dadosBR %>%
-  mutate(Mes = month(as.Date(DataHora))) %>%
-  count(Estado, Municipio, Mes, Ano, name = "Focos_Mes")
+#dados_inpe <- dados_inpe %>%
+ # mutate(Mes = month(as.Date(DataHora))) %>%
+  #count(Estado, Municipio, Mes, Ano, name = "Focos_Mes")
 
 
 ### count() é uma função do pacote dplyr que é, na prática, um atalho para um group_by() + summarize(n = n()).
 
 ##Transformando os nomes das colunas Estado para as UFs
 
+#dados_inpe <- dados_inpe %>%
+ # mutate(Estado = recode(Estado, !!!UFs))
 
-UFs <- c("ACRE" = "AC",
-         "ALAGOAS" = "AL",
-         "AMAPÁ" = "AP",
-         "AMAZONAS" = "AM",
-         "BAHIA" = "BA",
-         "CEARÁ" = "CE",
-         "DISTRITO FEDERAL" = "DF",
-         "ESPÍRITO SANTO" = "ES",
-         "GOIÁS" = "GO",
-         "MARANHÃO" = "MA",
-         "MATO GROSSO" = "MT",
-         "MATO GROSSO DO SUL" = "MS",
-         "MINAS GERAIS" = "MG",
-         "PARÁ" = "PA",
-         "PARAÍBA" = "PB",
-         "PARANÁ" = "PR",
-         "PERNAMBUCO" = "PE",
-         "PIAUÍ" = "PI",
-         "RIO DE JANEIRO" = "RJ",
-         "RIO GRANDE DO NORTE" = "RN",
-         "RIO GRANDE DO SUL" = "RS",
-         "RONDÔNIA" = "RO",
-         "RORAIMA" = "RR",
-         "SANTA CATARINA" = "SC",
-         "SÃO PAULO" = "SP",
-         "SERGIPE" = "SE",
-         "TOCANTINS" = "TO")
-
-dadosBR_mes <- dadosBR_mes %>%
-  mutate(Estado = recode(Estado, !!!UFs))
+#dados_inpe <- dados_inpe %>%
+ # filter(Estado %in% c("MT", "MS"))
 
 
-####### Padronizando as datas de acordo com o banco de dados do datasus. 
-
-class(dados_sih$MES_CMPT)
-class(dadosBR_mes$MES_CMPT)
-
-dadosBR_mes <- dadosBR_mes %>%
-  mutate(
-    MES_CMPT = as.character(sprintf("%02d", month(Mes))), 
-    ANO_CMPT = as.character(year(Mes))
-  ) %>%
-  dplyr::select(-Mes)
-
-##Analisando os biomas: 
-
-biomas_por_estado <- dadosBR %>%
-  group_by(Estado) %>%
-  summarise(Biomas = paste(unique(Bioma), collapse = ", ")) %>%
-  arrange(Estado)
-
-biomas_por_estado <- biomas_por_estado %>%
-  mutate(Estado = recode(Estado, !!!UFs))
-
-dadosBR_mes <- dadosBR_mes %>%
-  left_join(biomas_por_estado, by = "Estado")
-
-############################ Salvo até aqui dadosBR_mes ######################
-
-save(dadosBR_mes, file = "dadosBR_mes.RData")
-
-######### INCENDIOS POR MES/ANO, BIOMA E ESTADO: 
-library(dplyr)
-library(lubridate)
-
-dados_biomas <- dadosBR %>%
-  mutate(
-    data = as.Date(DataHora),
-    MES_CMPT = sprintf("%02d", month(data)),   # "01" a "12" como character
-    ANO_CMPT = as.character(year(data))        # ano como character
-  ) %>%
-  count(Estado, Bioma, MES_CMPT, ANO_CMPT, name = "QtdFocos")
+####### Padronizando as datas de dos dados_inpe e dados_sih
+####### Selecionando o período de interesse do dados_sih
 
 
-dados_biomas <- dados_biomas %>%
-  mutate(Estado = recode(Estado, !!!UFs))
-
-
-save(dados_biomas, file = "dados_biomas.RData")
-
-
-#########################################
-###### BANCO DE DADOS DATASUS ########## 
-###########################################
-
-
-# DEFININDO UM VETOR DE VARIÁVEIS
-vars_select = c("N_AIH", "ANO_CMPT", "MES_CMPT", "UF_ZI", "MUNIC_RES", "NASC", "IDADE", "SEXO", 
-                "DIAG_PRINC", "QT_DIARIAS", "DT_INTER", "DT_SAIDA",  "VAL_SP", "VAL_TOT")
-
-# Doenças respiratórias que podem ser ocasionadas por queimadas:
-
-# J40 - Bronquite não especificada como aguda ou crônica
-# J41 - Bronquite crônica simples e mucopurulenta
-# J42 - Bronquite crônica não especificada
-# J43 - Enfisema pulmonar
-# J44 - Doença Pulmonar Obstrutiva Crônica (DPOC)
-# J45 - Asma
-# J46 - Estado de mal asmático
-# J18 - Pneumonia não especificada
-# J00-J06 - Infecções agudas das vias aéreas superiores (resfriados comuns, rinite aguda, sinusite)
-# J20-J22 - Outras infecções agudas das vias aéreas inferiores (bronquiolites, bronquite aguda, infecção respiratória inferior aguda não especificada)
-
-# DEFININDO AS CID DE INTERESSE
-cids_select <- c("J40", "J41", "J42", "J43", "J44", "J45", "J46", "J18",
-                 "J00", "J01", "J02", "J03", "J04", "J05", "J06",
-                 "J20", "J21", "J22")
-
-ufs <- c("AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA",
-         "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN",
-         "RO", "RR", "RS", "SC", "SE", "SP", "TO")
-
-
-### DEVIDO AO ALTO CUSTO DE PROCESSAMENTO PARA BAIXAR TODOS OS DADOS
-### UTILIZAR DE 2022 A 2024. 
-
-#########################################################
-############ FUNÇÃO DOWNLOAD DATASUS #####################
-########################################################
-
-#RR <- fetch_datasus(year_start = 2022, year_end = 2024, 
-# month_start = 1, month_end = 12, 
-# uf = "RR", vars = vars_select,
-#  information_system = "SIH-RD") %>%
-# filter(DIAG_PRINC %in% cids_select)
-
-#save(RR, file = "RR.RData")
-
-
-
-############################################################
-########### LOOPING PARA DOWNLOAD DE DADOS DO DATASUS ####
-#######################################################
-
-################
-##A função map_dfr pertencente a biblioteca purr é utilizada para aplicar
-## uma função a cada elemento da lista ou vetor, e posteriormente unir tudo
-## em um dataframe. 
-
-#dados_sih <- map_dfr(ufs, function(uf_sigla) {
-# message("Baixando UF: ", uf_sigla)
-#tryCatch({
-# fetch_datasus(
-#  year_start = 2022, year_end = 2024,
-# month_start = 1, month_end = 12,
-#uf = uf_sigla,
-#vars = vars_select,
-#information_system = "SIH-RD"
-#) %>%
-#filter(DIAG_PRINC %in% cids_select) %>%
-#mutate(UF = uf_sigla)  # Adiciona coluna com UF
-# }, error = function(e) {
-# message("Erro ao baixar dados da UF ", uf_sigla, ": ", e$message)
-# NULL
-# })
-#})
-
-
-
-##Lendo todos os arquivos R.data para engloba-los no arquivo 
-## unificado de dados SIH
-
-#for (uf in ufs) {
-#arquivo <- paste0(uf, ".RData")
-#if (file.exists(arquivo)) {
-load(arquivo)
-message("Carregado: ", arquivo)
-} else {
-  warning("Arquivo não encontrado: ", arquivo)
-}
-#}
-
-
-#save(dados_sih, file = "dados_sih.RData")
-
-load("dados_sih.RData")
 
 glimpse(dados_sih)
 table(dados_sih$uf)
@@ -273,7 +152,7 @@ summary(dados_sih)
 
 
 sih_mes <- dados_sih %>%
-  count(uf, MES_CMPT, ANO_CMPT, name = "Internações")
+  count(UF_ZI, MUNIC_RES, DIAG_PRINC, MES_CMPT, ANO_CMPT, name = "Internações")
 
 
 #### ADICIONANDO TAMBÉM A QUANTIDADE DE DIAS DE INTERNAÇÃO
@@ -294,49 +173,6 @@ sih_mes <- left_join(sih_mes, somatorio_sih, by = c("uf", "MES_CMPT", "ANO_CMPT"
 
 #save(sih_mes, file = "sih_mes.RData")
 
-##############################################################
-## Após carregar os R.Data do ínicio, rodar a partir daqui ###
-###############################################################
-
-##########################################################
-# DEFININDO AMOSTRAGEM PARA TODO BD: 01-01-2022 A 31/12/2024 # 
-##########################################################
-
-sih_mes <- sih_mes %>%
-  filter(
-    ANO_CMPT >= 2022,
-    ANO_CMPT <= 2024
-  )
-
-dadosBR_mes <- dadosBR_mes %>%
-  filter(
-    ANO_CMPT >= 2022,
-    ANO_CMPT <= 2024
-  )
-
-dados_biomas <- dados_biomas %>%
-  filter(
-    ANO_CMPT >= 2022,
-    ANO_CMPT <= 2024
-  )
-
-dadosBR <- dadosBR %>%
-  mutate(
-    DataHora = ymd_hms(DataHora),              
-    Ano = year(DataHora),                      
-    Mes = month(DataHora),                     
-    Dia = day(DataHora),                       
-    Data = as_date(DataHora)                   
-  )
-
-dadosBR <- dadosBR %>%
-  filter(
-    Ano >= 2022,
-    Ano <= 2024
-  )
-
-
-save(sih_mes, file = "sih_mes.RData")
 
 ##########################################################
 # ANÁLISE EXPLORATÓRIA DOS DADOS 
