@@ -74,8 +74,7 @@ library(arrow)
 
 #load("2018.RData")
 load("dados_sih.RData")
-load("dados_inpe.RData")
-
+municipios <- st_read("municipios.shp")
 
 #dados <- c(X2015, X2016, X2017, X2018)
 #dados <- data.frame(valor = dados)
@@ -94,7 +93,7 @@ library(tidyr)
 # Verifique o resultado
 #head(dados)
 
-#save(dados_sih, file = "dados_sih.RData")
+save(sih_proporcao, file = "sih_proporcao.RData")
 
 #################################################
 ######### FORMATAÇÃO REALIZADA NO TERRABRASILIS ##########
@@ -192,13 +191,44 @@ boxplot(Internações ~ ANO_CMPT,
         ylab = "Qtd de Focos",
         col = "skyblue")
 
+boxplot(proporcao_cids ~ ANO_CMPT, 
+        data = proporcao,
+        main = "Distribuição de Proporção por Internação",
+        xlab = "Ano",
+        ylab = "Proporção",
+        col = "skyblue")
+
+boxplot(proporcao_cids ~ MES_CMPT, 
+        data = proporcao,
+        main = "Distribuição de Proporção por Internação",
+        xlab = "Ano",
+        ylab = "Proporção",
+        col = "skyblue")
+
+###Proporção entre internações de interesse e internações totais 
+
+dados_long <- proporcao %>%
+  pivot_longer(
+    cols = c(total_internacoes, internacoes_interesse),
+    names_to = "tipo_internacao",
+    values_to = "contagem"
+  )
+
+ggplot(data = dados_long, aes(x = as.factor(ANO_CMPT), y = contagem, fill = tipo_internacao)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Internações por Ano e Tipo",
+    subtitle = "Comparação entre total e internações de interesse",
+    x = "Ano",
+    y = "Número de Internações",
+    fill = "Tipo de Internação"
+  ) +
+  theme_classic()
+
 
 ##########################################################
 # PROPORÇÃO
 ##########################################################
-
-# Certifique-se de que a biblioteca dplyr está carregada
-library(dplyr)
 
 cids <- sih_mes %>%
   # Agrupa os dados por Ano, Mes e munic_res
@@ -233,17 +263,17 @@ print(sum(proporcao$proporcao_cids == 0))
 ## Também pode ser baixado por meio do geo_br
 #Shapes:
 
-municipios <- read_municipality()
+#municipios <- read_municipality()
 
 
 st_crs(municipios)
 
-save(estados, file = "shape_estados.RData")
+#save(municipios, file = "municipios.RData")
 
 library(wesanderson)
 
 ggplot(municipios) +
-  geom_sf(aes(fill = abbrev_state), color = "gray40") +
+  geom_sf(aes(fill = abbrv_s), color = "gray40") +
   scale_fill_manual(values = wes_palette("Cavalcanti1", n = 2)) +
   labs(
     title = "MUNICÍPIOS MT E MS",
@@ -267,16 +297,76 @@ library(dplyr)
 library(sf)
 names(municipios)
 
-municipios <- municipios %>%
-  filter(abbrev_state %in% c("MS", "MT"))
 
-# 2. Salvar o novo objeto em um arquivo shapefile
-# O arquivo será salvo na sua pasta de trabalho
-st_write(
-  municipios,
-  "municipios.shp",
-  driver = "ESRI Shapefile" # Driver para o formato .shp
+
+
+
+#############################AGREGANDO DADOS DO INPE AO SHAPEFILE ##########
+
+# Certifique-se de que os pacotes estão instalados e carregados
+
+
+library(sf)
+library(dplyr)
+library(stringi)
+
+
+# Padronização da coluna 'Municipio' da tabela de dados
+dados_inpe <- dados_inpe %>%
+  mutate(Municipio_limpo = tolower(stri_trans_general(Municipio, "Latin-ASCII")))
+
+# Padronize a coluna 'name_mn' do shapefile
+municipios <- municipios %>%
+  mutate(name_mn_limpo = tolower(stri_trans_general(name_mn, "Latin-ASCII")))
+
+# 3. Realize a união (left_join)
+# A junção vai unir os dados do dados_inpe (lado direito)
+# ao shapefile (lado esquerdo), usando as colunas padronizadas como chave.
+
+municipios_agregado <- left_join(municipios_agregado, sih_proporcao, by = c("name_mn" = "Municipio"))
+
+# O objeto 'municipios_agregado' agora contém as geometrias do shapefile
+# e as colunas da sua tabela 'dados_inpe' unidas.
+# Você pode inspecionar o resultado com:
+head(municipios_agregado)
+
+########################################## AGREGANDO NOME DO MUNICIPIO PELO CÓDIGO 
+
+library(readr)
+library(dplyr)
+
+ids_municipios <- read_delim(
+  file = "IDS.txt",
+  delim = ",", # ou " " se o delimitador for espaço
+  col_names = c("UF","Municipio", "ID_Municipio"),
+  col_types = "ccci", # Define os tipos das colunas: character, character, character, integer
+  show_col_types = FALSE
 )
+
+ids_municipios$ID_Municipio <- substr(ids_municipios$ID_Municipio, 1, nchar(ids_municipios$ID_Municipio) - 1)
+
+proporcao$MUNIC_RES <- as.character(proporcao$MUNIC_RES)
+ids_municipios$ID_Municipio <- as.character(ids_municipios$ID_Municipio)
+
+
+sih_proporcao <- inner_join(
+  proporcao,
+  ids_municipios,
+  by = c("MUNIC_RES" = "ID_Municipio")
+)
+
+
+
+library(sf)
+library(dplyr) 
+
+colunas_para_remover <- c("MUNIC_RES")
+
+municipios_agregado <- municipios_agregado[, !names(municipios_agregado) %in% colunas_para_remover]
+
+names(municipios_agregado)
+
+st_write(municipios_agregado, "municipios_agregado.shp")
 
 
 # Mapa
