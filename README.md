@@ -1,0 +1,1 @@
+Trabalho de Conclusão de Curso (Estatística Aplicada - UFRRJ) com o tema: Utilização de Modelos de Regressão Espacial para investigação do Efeito das Queimadas sobre Internações Respiratórias na Região Centro-Oeste do Brasil
